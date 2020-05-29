@@ -17,7 +17,7 @@
 package com.guichaguri.minimalftp.handler;
 
 import com.guichaguri.minimalftp.FTPConnection;
-import com.guichaguri.minimalftp.Utils;
+import com.guichaguri.minimalftp.util.Utils;
 import com.guichaguri.minimalftp.api.IFileSystem;
 import com.guichaguri.minimalftp.api.ResponseException;
 import java.io.IOException;

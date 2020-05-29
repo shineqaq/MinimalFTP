@@ -18,7 +18,7 @@ package com.guichaguri.minimalftp.handler;
 
 import com.guichaguri.minimalftp.FTPConnection;
 import com.guichaguri.minimalftp.FTPServer;
-import com.guichaguri.minimalftp.Utils;
+import com.guichaguri.minimalftp.util.Utils;
 import com.guichaguri.minimalftp.api.IUserAuthenticator;
 import com.guichaguri.minimalftp.api.IUserAuthenticator.AuthException;
 import java.io.IOException;
@@ -71,9 +71,15 @@ public class ConnectionHandler {
         return username;
     }
 
-    public Socket createDataSocket() throws IOException {
+    public Socket createDataSocket(ServerSocket passiveServer) throws IOException {
         if(passive && passiveServer != null) {
-            return passiveServer.accept();
+            int count = 0;
+            Socket socket = passiveServer.accept();
+            while (socket.isClosed() && count < 3) {
+                socket = passiveServer.accept();
+                count++;
+            }
+            return socket;
         } else if(secureData) {
             SSLSocketFactory factory = con.getServer().getSSLContext().getSocketFactory();
             SSLSocket socket = (SSLSocket)factory.createSocket(activeHost, activePort);
@@ -82,6 +88,10 @@ public class ConnectionHandler {
         } else {
             return new Socket(activeHost, activePort);
         }
+    }
+
+    public ServerSocket getPassiveServer() {
+        return passiveServer;
     }
 
     public void onConnected() throws IOException {
@@ -102,6 +112,7 @@ public class ConnectionHandler {
     public void onDisconnected() throws IOException {
         if(passiveServer != null) {
             Utils.closeQuietly(passiveServer);
+            con.getServer().releasePort(passiveServer.getLocalPort());
             passiveServer = null;
         }
     }
@@ -230,7 +241,7 @@ public class ConnectionHandler {
         IUserAuthenticator auth = con.getServer().getAuthenticator();
         if(auth.needsPassword(con, username, address)) {
             // Requests a password for the authentication
-            con.sendResponse(331, "Needs a password");
+            con.sendResponse(331, "Require password");
         } else {
             // Tries to authenticate using the given username
             boolean success = authenticate(auth, null);
@@ -296,11 +307,15 @@ public class ConnectionHandler {
 
     private void pasv() throws IOException {
         FTPServer server = con.getServer();
-        passiveServer = Utils.createServer(0, 5, server.getAddress(), server.getSSLContext(), secureData);
+        int port = server.nextPort();
+        if (port == -1) {
+            con.sendResponse(425, "Can't open data connection");
+            return;
+        }
+        passiveServer = Utils.createServer(port, 5, server.getAddress(), server.getSSLContext(), secureData);
         passive = true;
 
-        String host = passiveServer.getInetAddress().getHostAddress();
-        int port = passiveServer.getLocalPort();
+        String host = server.getPassiveHost() == null ? passiveServer.getInetAddress().getHostAddress() : server.getPassiveHost();
 
         if(host.equals("0.0.0.0")) {
             // Sends a valid address instead of a wildcard
@@ -399,11 +414,15 @@ public class ConnectionHandler {
 
     private void lpsv() throws IOException { // Obsolete Command
         FTPServer server = con.getServer();
-        passiveServer = Utils.createServer(0, 5, server.getAddress(), server.getSSLContext(), secureData);
+        int port = server.nextPort();
+        if (port == -1) {
+            con.sendResponse(425, "Can't open data connection");
+            return;
+        }
+        passiveServer = Utils.createServer(port, 5, server.getAddress(), server.getSSLContext(), secureData);
         passive = true;
 
-        String host = passiveServer.getInetAddress().getHostAddress();
-        int port = passiveServer.getLocalPort();
+        String host = server.getPassiveHost() == null ? passiveServer.getInetAddress().getHostAddress() : server.getPassiveHost();
 
         if(host.equals("0.0.0.0")) {
             // Sends a valid address instead of a wildcard
@@ -442,6 +461,7 @@ public class ConnectionHandler {
 
         if(passiveServer != null) {
             Utils.closeQuietly(passiveServer);
+            con.getServer().releasePort(passiveServer.getLocalPort());
             passiveServer = null;
         }
         con.sendResponse(200, "Enabled Active Mode");
@@ -449,7 +469,12 @@ public class ConnectionHandler {
 
     private void epsv() throws IOException {
         FTPServer server = con.getServer();
-        passiveServer = Utils.createServer(0, 5, server.getAddress(), server.getSSLContext(), secureData);
+        int port = server.nextPort();
+        if (port == -1) {
+            con.sendResponse(425, "Can't open data connection");
+            return;
+        }
+        passiveServer = Utils.createServer(port, 5, server.getAddress(), server.getSSLContext(), secureData);
         passive = true;
 
         con.sendResponse(229, "Enabled Passive Mode (|||" + passiveServer.getLocalPort() + "|)");
@@ -465,6 +490,7 @@ public class ConnectionHandler {
 
         if(passiveServer != null) {
             Utils.closeQuietly(passiveServer);
+            con.getServer().releasePort(passiveServer.getLocalPort());
             passiveServer = null;
         }
 

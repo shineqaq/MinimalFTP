@@ -36,7 +36,7 @@ public class CustomServer implements IFTPListener {
         server.setBufferSize(1024 * 5); // 5 kilobytes
 
         // Start it synchronously in our localhost and in the port 21
-        server.listenSync(InetAddress.getByName("localhost"), 21);
+        server.listenSync(21, "10000-10003");
     }
 
     @Override

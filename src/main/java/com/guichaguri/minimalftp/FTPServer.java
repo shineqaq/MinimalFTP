@@ -19,14 +19,14 @@ package com.guichaguri.minimalftp;
 import com.guichaguri.minimalftp.api.IFTPListener;
 import com.guichaguri.minimalftp.api.IUserAuthenticator;
 import com.guichaguri.minimalftp.impl.NoOpAuthenticator;
+import com.guichaguri.minimalftp.util.Utils;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.net.InetAddress;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.ArrayList;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import javax.net.ssl.SSLContext;
 
 /**
@@ -38,6 +38,7 @@ public class FTPServer implements Closeable {
     protected final List<FTPConnection> connections = Collections.synchronizedList(new ArrayList<FTPConnection>());
     protected final List<IFTPListener> listeners = Collections.synchronizedList(new ArrayList<IFTPListener>());
 
+    private String passiveHost;
     protected IUserAuthenticator auth = null;
     protected int idleTimeout = 5 * 60 * 1000; // 5 minutes
     protected int bufferSize = 1024;
@@ -46,6 +47,10 @@ public class FTPServer implements Closeable {
 
     protected ServerSocket socket = null;
     protected ServerThread serverThread = null;
+
+    private List<Integer> freeList;
+    private Set<Integer> usedList;
+    private final Random r = new Random();
 
     /**
      * Creates a new server
@@ -76,6 +81,22 @@ public class FTPServer implements Closeable {
      */
     public int getPort() {
         return socket != null ? socket.getLocalPort() : -1;
+    }
+
+    /**
+     * Gets the passive server host address
+     * @return The server host or {@code null} if the server host is not configured
+     */
+    public String getPassiveHost() {
+        return passiveHost;
+    }
+
+    /**
+     * Sets the passive server host address
+     * @param host The server host
+     */
+    public void setPassiveHost(String host) {
+        this.passiveHost = host;
     }
 
     /**
@@ -183,8 +204,8 @@ public class FTPServer implements Closeable {
      * @param port The server port
      * @throws IOException When an error occurs while starting the server
      */
-    public void listen(int port) throws IOException {
-        listen(null, port);
+    public void listen(int port, String passivePorts) throws IOException {
+        listen(null, port, passivePorts);
     }
 
     /**
@@ -194,11 +215,12 @@ public class FTPServer implements Closeable {
      * @param port The server port or {@code 0} to automatically allocate the port
      * @throws IOException When an error occurs while starting the server
      */
-    public void listen(InetAddress address, int port) throws IOException {
+    public void listen(InetAddress address, int port, String passivePorts) throws IOException {
         if(auth == null) throw new NullPointerException("The Authenticator is null");
         if(socket != null) throw new IOException("Server already started");
 
         socket = Utils.createServer(port, 50, address, ssl, !explicitSecurity);
+        parse(passivePorts);
 
         serverThread = new ServerThread();
         serverThread.setDaemon(true);
@@ -213,8 +235,8 @@ public class FTPServer implements Closeable {
      * @param port The server port
      * @throws IOException When an error occurs while starting the server
      */
-    public void listenSync(int port) throws IOException {
-        listenSync(null, port);
+    public void listenSync(int port, String passivePorts) throws IOException {
+        listenSync(null, port, passivePorts);
     }
 
     /**
@@ -226,14 +248,98 @@ public class FTPServer implements Closeable {
      * @param port The server port or {@code 0} to automatically allocate the port
      * @throws IOException When an error occurs while starting the server
      */
-    public void listenSync(InetAddress address, int port) throws IOException {
+    public void listenSync(InetAddress address, int port, String passivePorts) throws IOException {
         if(auth == null) throw new NullPointerException("The Authenticator is null");
         if(socket != null) throw new IOException("Server already started");
 
         socket = Utils.createServer(port, 50, address, ssl, !explicitSecurity);
+        parse(passivePorts);
 
         while(!socket.isClosed()) {
             update();
+        }
+    }
+
+    protected void parse(String passivePorts) {
+        Set<Integer> passivePortsList = new HashSet<>();
+
+        boolean inRange = false;
+        int lastPort = 1;
+        StringTokenizer st = new StringTokenizer(passivePorts, ",;-", true);
+        while (st.hasMoreTokens()) {
+            String token = st.nextToken().trim();
+
+            if (",".equals(token) || ";".equals(token)) {
+                if (inRange) {
+                    fillRange(passivePortsList, lastPort, 65535);
+                }
+
+                // reset state
+                lastPort = 1;
+                inRange = false;
+            } else if ("-".equals(token)) {
+                inRange = true;
+            } else if (token.length() == 0) {
+                // ignore whitespace
+            } else {
+                int port = Integer.parseInt(token);
+
+                if (port < 0) {
+                    throw new IllegalArgumentException("Port can not be negative: " + port);
+                } else if (port > 65535) {
+                    throw new IllegalArgumentException("Port too large: " + port);
+                }
+
+                if (inRange) {
+                    // add all numbers from last int
+                    fillRange(passivePortsList, lastPort, port);
+
+                    inRange = false;
+                }
+
+                passivePortsList.add(port);
+
+                lastPort = port;
+            }
+        }
+
+        if (inRange) {
+            fillRange(passivePortsList, lastPort, 65535);
+        }
+        freeList = new ArrayList<>(passivePortsList);
+        usedList = new HashSet<>(freeList.size());
+    }
+
+    private static void fillRange(final Set<Integer> passivePortsList, final Integer beginPort, final Integer endPort) {
+        for (int i = beginPort; i <= endPort; i++) {
+            passivePortsList.add(i);
+        }
+    }
+
+    public int nextPort() {
+        synchronized (freeList) {
+            if (freeList.isEmpty()) {
+                return -1;
+            }
+            int i = r.nextInt(freeList.size());
+            int port = freeList.get(i);
+            usedList.add(port);
+            freeList.remove(i);
+            return port;
+        }
+    }
+
+    public void releasePort(int port) {
+        synchronized (freeList) {
+            if (port != 0 && usedList.remove(port)) {
+                freeList.add(port);
+            }
+        }
+    }
+
+    public List<Integer> getFreePassivePorts() {
+        synchronized (freeList) {
+            return freeList;
         }
     }
 

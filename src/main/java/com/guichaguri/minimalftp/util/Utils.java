@@ -14,7 +14,7 @@
  * limitations under the License.
  */
 
-package com.guichaguri.minimalftp;
+package com.guichaguri.minimalftp.util;
 
 import com.guichaguri.minimalftp.api.IFileSystem;
 import java.io.BufferedInputStream;

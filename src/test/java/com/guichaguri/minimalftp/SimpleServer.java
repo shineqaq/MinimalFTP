@@ -25,7 +25,7 @@ public class SimpleServer {
         FTPServer server = new FTPServer(auth);
 
         // Start listening synchronously
-        server.listenSync(21);
+        server.listenSync(21, "10000-10003");
     }
 
 }

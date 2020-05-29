@@ -16,7 +16,7 @@
 
 package com.guichaguri.minimalftp.impl;
 
-import com.guichaguri.minimalftp.Utils;
+import com.guichaguri.minimalftp.util.Utils;
 import com.guichaguri.minimalftp.api.IFileSystem;
 import java.io.*;
 import java.nio.file.Files;

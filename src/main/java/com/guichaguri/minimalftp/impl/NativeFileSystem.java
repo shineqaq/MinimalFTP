@@ -16,6 +16,7 @@
 
 package com.guichaguri.minimalftp.impl;
 
+import com.guichaguri.minimalftp.api.ResponseException;
 import com.guichaguri.minimalftp.util.Utils;
 import com.guichaguri.minimalftp.api.IFileSystem;
 import java.io.*;
@@ -188,7 +189,7 @@ public class NativeFileSystem implements IFileSystem<File> {
 
     @Override
     public void mkdirs(File file) throws IOException {
-        if(!file.mkdirs()) throw new IOException("Couldn't create the directory");
+        if(!file.mkdirs()) throw new ResponseException(550, "Couldn't create the directory");
     }
 
     @Override
